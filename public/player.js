@@ -16,8 +16,8 @@ export function updatePlayer(keys, checkCollision) {
   if (keys['ArrowRight']) newX += playerSpeed;
 
   // Vérifier les collisions avant d'appliquer le déplacement
-  if (!checkCollision(newX, playerY)) playerX = Math.max(0, Math.min(2000, newX));
-  if (!checkCollision(playerX, newY)) playerY = Math.max(0, Math.min(2000, newY));
+  if (!checkCollision(newX, playerY)) playerX = Math.max(0, Math.min(20000, newX));
+  if (!checkCollision(playerX, newY)) playerY = Math.max(0, Math.min(20000, newY));
 }
 
 // Dessiner le joueur
