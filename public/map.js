@@ -17,9 +17,9 @@ import { getObstacles } from './client.js';
     const obstacles = getObstacles();
     for (let obstacle of obstacles) {
       if (x < obstacle.x + obstacle.width &&
-          x + 30 > obstacle.x &&
+          x > obstacle.x &&
           y < obstacle.y + obstacle.height &&
-          y + 30 > obstacle.y) {
+          y > obstacle.y) {
         return true;  // Collision détectée
       }
     }
