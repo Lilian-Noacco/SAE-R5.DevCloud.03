@@ -16,10 +16,10 @@ import { getObstacles } from './client.js';
   export function checkCollision(x, y) {
     const obstacles = getObstacles();
     for (let obstacle of obstacles) {
-      if (x < obstacle.x + obstacle.width &&
-          x > obstacle.x &&
-          y < obstacle.y + obstacle.height &&
-          y > obstacle.y) {
+      if (x - 15 < obstacle.x + obstacle.width &&
+          x + 15 > obstacle.x &&
+          y - 15 < obstacle.y + obstacle.height &&
+          y + 15> obstacle.y) {
         return true;  // Collision détectée
       }
     }
