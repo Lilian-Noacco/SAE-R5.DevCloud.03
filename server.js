@@ -6,19 +6,21 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-const mapSize = 2000;  // Taille de la carte
+const mapSize = 20000;  // Taille de la carte
 let obstacles = [];
 
 // Fonction pour générer des obstacles aléatoires
 function generateMap() {
   obstacles = [];
-  const numberOfObstacles = 10; // Par exemple, 10 obstacles
+  const numberOfObstacles = 1000; // Par exemple, 1000 obstacles
+  const mapSize = 5000;  // Remplacez par la taille souhaitée de la carte
+
   for (let i = 0; i < numberOfObstacles; i++) {
     let obstacle = {
-      x: Math.floor(Math.random() * (mapSize - 200)) + 100,  // Position aléatoire
-      y: Math.floor(Math.random() * (mapSize - 200)) + 100,
-      width: Math.floor(Math.random() * 150) + 50,  // Taille aléatoire
-      height: Math.floor(Math.random() * 150) + 50,
+      x: Math.floor(Math.random() * ((mapSize - 200) / 50)) * 50 + 100,  // Position aléatoire en multiples de 50
+      y: Math.floor(Math.random() * ((mapSize - 200) / 50)) * 50 + 100,
+      width: Math.floor(Math.random() * 3 + 1) * 50,  // Taille aléatoire entre 50, 100 et 150
+      height: Math.floor(Math.random() * 3 + 1) * 50,  // Taille aléatoire entre 50, 100 et 150
     };
     obstacles.push(obstacle);
   }
@@ -32,14 +34,15 @@ let players = {};
 io.on('connection', (socket) => {
   console.log('Un joueur s\'est connecté : ' + socket.id);
   
-
+  socket.emit('mapData', obstacles);
+  console.log("Map sent");
   // Ajouter un nouveau joueur
   players[socket.id] = {
     x: Math.random() * 500,  // Position de départ aléatoire
     y: Math.random() * 500,
   };
   
-  socket.emit('mapData', obstacles);
+
   // Envoyer la liste des joueurs actuels au nouvel arrivant
   socket.emit('currentPlayers', players);
   
