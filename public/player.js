@@ -1,4 +1,5 @@
 // player.js
+import { getObstacles } from './client.js';
 
 export let playerX = 1000;
 export let playerY = 1000;
@@ -27,3 +28,17 @@ export function drawPlayer(ctx, cameraX, cameraY) {
   ctx.fillStyle = 'red';
   ctx.fillRect(playerDrawX - 15, playerDrawY - 15, 30, 30);
 }
+
+  // Fonction pour vérifier la collision du joueur avec un obstacle
+  export function checkCollision(x, y) {
+    const obstacles = getObstacles();
+    for (let obstacle of obstacles) {
+      if (x - 15 < obstacle.x + obstacle.width &&
+          x + 15 > obstacle.x &&
+          y - 15 < obstacle.y + obstacle.height &&
+          y + 15> obstacle.y) {
+        return true;  // Collision détectée
+      }
+    }
+    return false;  // Pas de collision
+  }
