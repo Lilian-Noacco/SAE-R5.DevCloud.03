@@ -12,17 +12,5 @@ import { getObstacles } from './client.js';
     });
   }
   
-  // Fonction pour vérifier la collision du joueur avec un obstacle
-  export function checkCollision(x, y) {
-    const obstacles = getObstacles();
-    for (let obstacle of obstacles) {
-      if (x - 15 < obstacle.x + obstacle.width &&
-          x + 15 > obstacle.x &&
-          y - 15 < obstacle.y + obstacle.height &&
-          y + 15> obstacle.y) {
-        return true;  // Collision détectée
-      }
-    }
-    return false;  // Pas de collision
-  }
+
   
