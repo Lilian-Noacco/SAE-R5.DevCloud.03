@@ -1,5 +1,5 @@
 // client.js
-import { obstacles, drawObstacles, checkCollision } from './map.js';
+import { drawObstacles, checkCollision } from './map.js';
 import { playerX, playerY, updatePlayer, drawPlayer } from './player.js';
 
 const canvas = document.getElementById('gameCanvas');
@@ -15,6 +15,7 @@ const socket = io();
 // Stocker les autres joueurs
 let otherPlayers = {};
 
+let obstacles = [];
 // Gérer les touches enfoncées
 let keys = {};
 
@@ -25,6 +26,23 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => {
   keys[e.key] = false;
 });
+
+// export const obstacles = [
+//  { x: 300, y: 400, width: 100, height: 100 },
+//  { x: 600, y: 700, width: 150, height: 50 },
+//  { x: 1200, y: 900, width: 200, height: 200 }
+//];
+// Recevoir les obstacles générés par le serveur
+// Mettre à jour `obstacles` lorsqu'on reçoit les données du serveur
+socket.on('mapData', (serverObstacles) => {
+  console.log("Obstacles reçus:", serverObstacles);
+  obstacles = serverObstacles;  // Mettre à jour les obstacles avec les données du serveur
+});
+
+// Fonction pour accéder aux obstacles à jour
+export function getObstacles() {
+  return obstacles;
+}
 
 // Recevoir la liste des joueurs actuels à la connexion
 socket.on('currentPlayers', (players) => {
@@ -60,11 +78,7 @@ function drawOtherPlayers(ctx, cameraX, cameraY) {
 }
 
 
-// Recevoir les obstacles générés par le serveur
-socket.on('mapData', (serverObstacles) => {
-  obstacles = serverObstacles;
-  console.log("Obstacles reçus:", obstacles);
-});
+
 
 
 
@@ -92,23 +106,22 @@ function drawGrid(cameraX, cameraY) {
 
 function gameLoop() {
   // Calculer la position de la caméra
-  const cameraX = Math.min(Math.max(playerX - canvas.width / 2, 0), 2000 - canvas.width);
-  const cameraY = Math.min(Math.max(playerY - canvas.height / 2, 0), 2000 - canvas.height);
-
-  // Mettre à jour la position du joueur local
-  updatePlayer(keys, checkCollision);
-
+  const cameraX = Math.min(Math.max(playerX - canvas.width / 2, 0), 20000 - canvas.width);
+  const cameraY = Math.min(Math.max(playerY - canvas.height / 2, 0), 20000 - canvas.height);
   // Effacer le canvas
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawGrid(cameraX, cameraY);
-  // Dessiner l'arrière-plan
-  //ctx.drawImage(background, -cameraX, -cameraY, 2000, 2000);
 
-  // Dessiner les obstacles
-  drawObstacles(ctx, cameraX, cameraY);
+
 
   // Dessiner le joueur local
   drawPlayer(ctx, cameraX, cameraY);
+  
+  // Dessiner les obstacles
+  drawObstacles(ctx, cameraX, cameraY);
+  // Mettre à jour la position du joueur local
+  updatePlayer(keys, checkCollision);
+
 
   // Dessiner les autres joueurs
   drawOtherPlayers(ctx, cameraX, cameraY);
@@ -119,9 +132,4 @@ function gameLoop() {
   requestAnimationFrame(gameLoop);
 }
 
-// Charger l'image de l'arrière-plan et lancer la boucle de jeu
-const background = new Image();
-background.src = 'background.png';
-background.onload = function() {
-  gameLoop();
-};
+gameLoop();
