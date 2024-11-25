@@ -1,9 +1,12 @@
 // client.js
-import { drawObstacles, checkCollision } from './map.js';
-import { playerX, playerY, updatePlayer, drawPlayer } from './player.js';
+import { drawObstacles, shrinkSafeZone, isPlayerOutsideSafeZone, drawSafeZone } from './map.js';
+import { Player } from './player.js';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
+
+let mouseX = 0;
+let mouseY = 0;
 
 // Taille du canvas
 canvas.width = window.innerWidth;
@@ -16,6 +19,8 @@ const socket = io();
 let otherPlayers = {};
 
 let obstacles = [];
+let myProjectiles = []; // Projectiles du joueur local
+let otherProjectiles = {}; // Projectiles des autres joueurs
 // Gérer les touches enfoncées
 let keys = {};
 
@@ -26,6 +31,8 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => {
   keys[e.key] = false;
 });
+
+const player = new Player(); //On créé un joueur à partir de la classe
 
 // export const obstacles = [
 //  { x: 300, y: 400, width: 100, height: 100 },
@@ -43,6 +50,12 @@ socket.on('mapData', (serverObstacles) => {
 export function getObstacles() {
   return obstacles;
 }
+
+export function getProjectiles() {
+  return otherProjectiles;
+}
+
+
 
 // Recevoir la liste des joueurs actuels à la connexion
 socket.on('currentPlayers', (players) => {
@@ -77,10 +90,82 @@ function drawOtherPlayers(ctx, cameraX, cameraY) {
   }
 }
 
+canvas.addEventListener('click', () => {
+  const speed = 10; // Vitesse du projectile
+  const dx = mouseX - canvas.width / 2;
+  const dy = mouseY - canvas.height / 2;
+  const magnitude = Math.sqrt(dx * dx + dy * dy);
+  const directionX = dx / magnitude;
+  const directionY = dy / magnitude;
+  const damage = 10;
+  const projectile = {
+    x: player.x,
+    y: player.y,
+    directionX: directionX,
+    directionY: directionY,
+    speed: speed,
+    damage: damage,
+  };
 
+  myProjectiles.push(projectile);
+  console.log("Projectile tiré");
+  // Informer le serveur
+  socket.emit('shootProjectile', projectile);
+});
 
+socket.on('projectileFired', (data) => {
+  if (!otherProjectiles[data.id]) {
+    otherProjectiles[data.id] = [];
+  }
+  otherProjectiles[data.id].push(data);
+});
 
+function updateProjectiles(projectiles) {
+  for (let i = projectiles.length - 1; i >= 0; i--) {
+    const projectile = projectiles[i];
+    projectile.x += projectile.directionX * projectile.speed;
+    projectile.y += projectile.directionY * projectile.speed;
 
+    // Retirer les projectiles hors de la carte (par exemple, limites arbitraires)
+    if (projectile.x < 0 || projectile.x > 20000 || projectile.y < 0 || projectile.y > 20000) {
+      projectiles.splice(i, 1);
+    }
+  }
+}
+
+function drawProjectiles(ctx, projectiles, cameraX, cameraY) {
+  projectiles.forEach((projectile) => {
+    const drawX = projectile.x - cameraX;
+    const drawY = projectile.y - cameraY;
+    ctx.fillStyle = 'red';
+    ctx.beginPath();
+    ctx.arc(drawX, drawY, 5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+canvas.addEventListener('mousemove', (event) => {
+  const rect = canvas.getBoundingClientRect();
+  mouseX = event.clientX - rect.left;
+  mouseY = event.clientY - rect.top;
+});
+
+function drawCrosshair(ctx) {
+  const size = 15;  // Taille du réticule
+
+  ctx.strokeStyle = 'black';
+  ctx.lineWidth = 4;
+
+  // Dessine une croix simple
+  ctx.beginPath();
+  // Ligne verticale
+  ctx.moveTo(mouseX, mouseY - size);
+  ctx.lineTo(mouseX, mouseY + size);
+  // Ligne horizontale
+  ctx.moveTo(mouseX - size, mouseY);
+  ctx.lineTo(mouseX + size, mouseY);
+  ctx.stroke();
+}
 
 function drawGrid(cameraX, cameraY) {
     const gridSize = 50;  // Taille des cases de la grille
@@ -106,29 +191,37 @@ function drawGrid(cameraX, cameraY) {
 
 function gameLoop() {
   // Calculer la position de la caméra
-  const cameraX = Math.min(Math.max(playerX - canvas.width / 2, 0), 20000 - canvas.width);
-  const cameraY = Math.min(Math.max(playerY - canvas.height / 2, 0), 20000 - canvas.height);
-  // Effacer le canvas
+  const cameraX = Math.min(Math.max(player.x - canvas.width / 2, 0), 20000 - canvas.width);
+  const cameraY = Math.min(Math.max(player.y - canvas.height / 2, 0), 20000 - canvas.height);
+
+
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  updateProjectiles(myProjectiles);
+  Object.values(otherProjectiles).forEach(updateProjectiles);
+
+  player.checkHit();
+  //shrinkSafeZone();
+  //drawSafeZone(ctx, cameraX, cameraY)
   drawGrid(cameraX, cameraY);
-
-
-
-  // Dessiner le joueur local
-  drawPlayer(ctx, cameraX, cameraY);
-  
-  // Dessiner les obstacles
   drawObstacles(ctx, cameraX, cameraY);
-  // Mettre à jour la position du joueur local
-  updatePlayer(keys, checkCollision);
+  drawCrosshair(ctx);
 
+  drawProjectiles(ctx, myProjectiles, cameraX, cameraY);
+  Object.values(otherProjectiles).forEach((projectiles) => {
+    drawProjectiles(ctx, projectiles, cameraX, cameraY);
+  });
+    // Mise à jour des autres entités et déplacements
+
+  
+  player.draw(ctx, cameraX, cameraY);
+  player.update(keys);
 
   // Dessiner les autres joueurs
   drawOtherPlayers(ctx, cameraX, cameraY);
-
   // Envoyer la position du joueur au serveur
-  socket.emit('playerMovement', { x: playerX, y: playerY });
-
+  socket.emit('playerMovement', { x: player.x, y: player.y });
+  player.drawHealthBarTopLeft(ctx); // Dessine la barre de vie en haut à gauche
   requestAnimationFrame(gameLoop);
 }
 
