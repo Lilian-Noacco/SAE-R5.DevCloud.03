@@ -13,7 +13,7 @@ let obstacles = [];
 function generateMap() {
   obstacles = [];
   const numberOfObstacles = 1000; // Par exemple, 1000 obstacles
-  const mapSize = 5000;  // Remplacez par la taille souhaitée de la carte
+  const mapSize = 20000;  // Remplacez par la taille souhaitée de la carte
 
   for (let i = 0; i < numberOfObstacles; i++) {
     let obstacle = {
@@ -49,9 +49,6 @@ io.on('connection', (socket) => {
   // Informer les autres joueurs de la nouvelle connexion
   socket.broadcast.emit('newPlayer', { id: socket.id, x: players[socket.id].x, y: players[socket.id].y });
   
-  socket.on('shootProjectile', (projectileData) => {
-    socket.broadcast.emit('projectileFired', projectileData);
-  });
   
   // Recevoir les mises à jour des positions des joueurs
   socket.on('playerMovement', (movementData) => {
@@ -64,6 +61,15 @@ io.on('connection', (socket) => {
     }
   });
   
+  socket.on('shootProjectile', (data) => {
+    console.log("Projectile tiré");
+    // Relayer le projectile à tous les autres joueurs
+    socket.broadcast.emit('projectileFired', {
+      id: socket.id,
+      ...data,
+    });
+  });
+
   // Gérer la déconnexion
   socket.on('disconnect', () => {
     console.log('Un joueur s\'est déconnecté : ' + socket.id);
