@@ -1,0 +1,8 @@
+FROM node:18
+WORKDIR /usr/src/app
+RUN apt-get update && apt-get install -y git && apt-get clean
+RUN git clone https://github.com/Pi1lot/agar.io-clone.git .
+RUN npm install
+RUN npm install prom-client
+EXPOSE 3000
+CMD ["npm", "start"]
