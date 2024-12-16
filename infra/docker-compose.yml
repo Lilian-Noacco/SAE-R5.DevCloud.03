@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "8080:9090"
+    networks:
+      monitoring:
+        ipv4_address: 192.168.100.2
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      monitoring:
+        ipv4_address: 192.168.100.3
+  node_exporter:
+    image: prom/node-exporter:latest
+    container_name: node_exporter
+    ports:
+      - "9100:9100"
+    networks:
+      monitoring:
+        ipv4_address: 192.168.100.4
+
+  agario:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agario
+    ports:
+      - "3333:3000"
+    networks:
+      monitoring:
+        ipv4_address: 192.168.100.5
+
+volumes:
+  grafana-data:
+
+networks:
+  monitoring:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.100.0/24
