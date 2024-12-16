@@ -1,2 +1,2 @@
-docker run --name game -p 3000:3000 agar-io-clone
-docker run --name prometheus -p 8080:9090 -d prometheus-agario
+docker compose build
+docker-compose up -d
