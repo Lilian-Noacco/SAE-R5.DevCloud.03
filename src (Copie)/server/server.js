@@ -24,12 +24,67 @@ const INIT_MASS_LOG = util.mathLog(config.defaultPlayerMass, config.slowBase);
 let leaderboard = [];
 let leaderboardChanged = false;
 
-let totalPlayers = 0; // Total des joueurs depuis le démarrage
-let currentPlayers = 0; // Joueurs actuellement connectés
-
 const Vector = SAT.Vector;
 
+const client = require('prom-client');
+
 app.use(express.static(__dirname + '/../client'));
+
+
+// Configuration des métriques Prometheus
+const collectDefaultMetrics = client.collectDefaultMetrics;
+collectDefaultMetrics(); // Collecte des métriques par défaut du processus Node.js
+
+// Création de métriques personnalisées
+const connectedPlayersGauge = new client.Gauge({
+    name: 'game_connected_players_total',
+    help: 'Total number of connected players',
+});
+
+const spectatorsGauge = new client.Gauge({
+    name: 'game_spectators_total',
+    help: 'Total number of spectators',
+});
+
+const leaderboardUpdatesCounter = new client.Counter({
+    name: 'game_leaderboard_updates_total',
+    help: 'Total number of leaderboard updates',
+});
+
+// Mettre à jour les métriques dans les fonctions du jeu
+const updateMetrics = () => {
+    connectedPlayersGauge.set(map.players.data.length);
+    spectatorsGauge.set(spectators.length);
+};
+
+// Appeler cette fonction périodiquement ou à chaque mise à jour pertinente
+setInterval(updateMetrics, 5000); // Mise à jour toutes les 5 secondes
+
+// Endpoint pour exposer les métriques
+app.get('/metrics', async (req, res) => {
+    res.set('Content-Type', client.register.contentType);
+    res.end(await client.register.metrics());
+});
+
+// Modification de la fonction calculateLeaderboard pour incrémenter le compteur
+const calculateLeaderboard = () => {
+    const topPlayers = map.players.getTopPlayers();
+
+    if (leaderboard.length !== topPlayers.length) {
+        leaderboard = topPlayers;
+        leaderboardChanged = true;
+        leaderboardUpdatesCounter.inc(); // Incrémenter le compteur à chaque mise à jour du leaderboard
+    } else {
+        for (let i = 0; i < leaderboard.length; i++) {
+            if (leaderboard[i].id !== topPlayers[i].id) {
+                leaderboard = topPlayers;
+                leaderboardChanged = true;
+                leaderboardUpdatesCounter.inc(); // Incrémenter le compteur
+                break;
+            }
+        }
+    }
+};
 
 io.on('connection', function (socket) {
     let type = socket.handshake.query.type;
@@ -72,8 +127,6 @@ const addPlayer = (socket) => {
             map.players.pushNew(currentPlayer);
             io.emit('playerJoin', { name: currentPlayer.name });
             console.log('Total players: ' + map.players.data.length);
-            totalPlayers++; // Incrémenter le nombre total de joueurs
-            currentPlayers++; // Incrémenter les joueurs connectés
         }
 
     });
@@ -100,7 +153,6 @@ const addPlayer = (socket) => {
         map.players.removePlayerByID(currentPlayer.id);
         console.log('[INFO] User ' + currentPlayer.name + ' has disconnected');
         socket.broadcast.emit('playerDisconnect', { name: currentPlayer.name });
-        currentPlayers--; // Incrémenter les joueurs connectés
     });
 
     socket.on('playerChat', (data) => {
@@ -285,22 +337,6 @@ const tickGame = () => {
 
 };
 
-const calculateLeaderboard = () => {
-    const topPlayers = map.players.getTopPlayers();
-
-    if (leaderboard.length !== topPlayers.length) {
-        leaderboard = topPlayers;
-        leaderboardChanged = true;
-    } else {
-        for (let i = 0; i < leaderboard.length; i++) {
-            if (leaderboard[i].id !== topPlayers[i].id) {
-                leaderboard = topPlayers;
-                leaderboardChanged = true;
-                break;
-            }
-        }
-    }
-}
 
 const gameloop = () => {
     if (map.players.data.length > 0) {
@@ -344,13 +380,6 @@ const updateSpectator = (socketID) => {
         sendLeaderboard(sockets[socketID]);
     }
 }
-
-app.get('/api/players/stats', (req, res) => {
-    res.json({
-        currentPlayers,
-        totalPlayers
-    });
-});
 
 setInterval(tickGame, 1000 / 60);
 setInterval(gameloop, 1000);
