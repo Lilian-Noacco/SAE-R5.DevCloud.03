@@ -1,0 +1,448 @@
+---
+- hosts: localhost
+  become: true
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install Docker from Ubuntu repos
+      apt:
+        name: docker.io
+        state: present
+
+    - name: Install snapd (if not installed)
+      apt:
+        name: snapd
+        state: present
+
+    - name: Install kubectl via snap
+      snap:
+        name: kubectl
+        classic: yes
+        state: present
+
+    - name: Install k3d
+      shell: curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+      args:
+        creates: /usr/local/bin/k3d
+
+    - name: Create K3D cluster
+      shell: k3d cluster create moncluster --servers 1 --agents 1
+      args:
+        creates: /root/.k3d/clusters/moncluster.yaml
+
+    - name: Deploy Nginx
+      copy:
+        dest: /tmp/nginx-deployment.yaml
+        content: |
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: nginx-deployment
+          spec:
+            replicas: 2
+            selector:
+              matchLabels:
+                app: nginx
+            template:
+              metadata:
+                labels:
+                  app: nginx
+              spec:
+                containers:
+                - name: nginx
+                  image: nginx:stable-alpine
+                  ports:
+                  - containerPort: 80
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: nginx-service
+          spec:
+            type: ClusterIP
+            selector:
+              app: nginx
+            ports:
+            - name: http
+              port: 80
+              targetPort: 80
+
+    - name: Apply Nginx manifest
+      shell: kubectl apply -f /tmp/nginx-deployment.yaml
+
+    # Déploiement du namespace monitoring
+    - name: Create monitoring namespace
+      copy:
+        dest: /tmp/namespace.yaml
+        content: |
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: monitoring
+    - name: Apply monitoring namespace
+      shell: kubectl apply -f /tmp/namespace.yaml
+
+    # Prometheus ConfigMap avec Agario Metrics
+    - name: Create prometheus configmap
+      copy:
+        dest: /tmp/prometheus-configmap.yaml
+        content: |
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: prometheus-config
+            namespace: monitoring
+          data:
+            prometheus.yml: |
+              global:
+                scrape_interval: 15s
+              scrape_configs:
+                - job_name: 'prometheus'
+                  static_configs:
+                    - targets: ['localhost:9090']
+                - job_name: 'node_exporter'
+                  static_configs:
+                    - targets: ['node-exporter-service.monitoring.svc.cluster.local:9100']
+                - job_name: 'agario-blackbox'
+                  metrics_path: /probe
+                  params:
+                    module: [http_2xx]
+                  static_configs:
+                    - targets:
+                      - http://agario-server.default.svc.cluster.local:3000
+                  relabel_configs:
+                    - source_labels: [__address__]
+                      target_label: __param_target
+                    - source_labels: [__param_target]
+                      target_label: instance
+                    - target_label: __address__
+                      replacement: blackbox-exporter-service.monitoring.svc.cluster.local:9115
+                - job_name: 'agario-metrics'
+                  static_configs:
+                    - targets: ['agario-server.default.svc.cluster.local:3000']
+    - name: Apply prometheus configmap
+      shell: kubectl apply -f /tmp/prometheus-configmap.yaml
+
+    # Prometheus Deployment + Service
+    - name: Create prometheus deployment and service
+      copy:
+        dest: /tmp/prometheus.yaml
+        content: |
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: prometheus-deployment
+            namespace: monitoring
+            labels:
+              app: prometheus
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: prometheus
+            template:
+              metadata:
+                labels:
+                  app: prometheus
+              spec:
+                containers:
+                  - name: prometheus
+                    image: prom/prometheus:latest
+                    args:
+                      - "--config.file=/etc/prometheus/prometheus.yml"
+                    ports:
+                      - containerPort: 9090
+                    volumeMounts:
+                      - name: prometheus-config
+                        mountPath: /etc/prometheus
+                volumes:
+                  - name: prometheus-config
+                    configMap:
+                      name: prometheus-config
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: prometheus-service
+            namespace: monitoring
+          spec:
+            type: ClusterIP
+            selector:
+              app: prometheus
+            ports:
+              - name: web
+                port: 9090
+                targetPort: 9090
+    - name: Apply prometheus deployment and service
+      shell: kubectl apply -f /tmp/prometheus.yaml
+
+    # Grafana + PVC
+    - name: Create grafana manifests
+      copy:
+        dest: /tmp/grafana.yaml
+        content: |
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: grafana-pvc
+            namespace: monitoring
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+          ---
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: grafana-deployment
+            namespace: monitoring
+            labels:
+              app: grafana
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: grafana
+            template:
+              metadata:
+                labels:
+                  app: grafana
+              spec:
+                containers:
+                  - name: grafana
+                    image: grafana/grafana:latest
+                    env:
+                      - name: GF_SECURITY_ADMIN_USER
+                        value: "admin"
+                      - name: GF_SECURITY_ADMIN_PASSWORD
+                        value: "admin"
+                    ports:
+                      - containerPort: 3000
+                    volumeMounts:
+                      - name: grafana-storage
+                        mountPath: /var/lib/grafana
+                volumes:
+                  - name: grafana-storage
+                    persistentVolumeClaim:
+                      claimName: grafana-pvc
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: grafana-service
+            namespace: monitoring
+          spec:
+            type: ClusterIP
+            selector:
+              app: grafana
+            ports:
+              - name: web
+                port: 3000
+                targetPort: 3000
+    - name: Apply grafana manifests
+      shell: kubectl apply -f /tmp/grafana.yaml
+
+    # Node Exporter
+    - name: Create node exporter manifests
+      copy:
+        dest: /tmp/node-exporter.yaml
+        content: |
+          apiVersion: apps/v1
+          kind: DaemonSet
+          metadata:
+            name: node-exporter
+            namespace: monitoring
+            labels:
+              app: node-exporter
+          spec:
+            selector:
+              matchLabels:
+                app: node-exporter
+            template:
+              metadata:
+                labels:
+                  app: node-exporter
+              spec:
+                hostNetwork: true
+                containers:
+                  - name: node-exporter
+                    image: prom/node-exporter:latest
+                    ports:
+                      - containerPort: 9100
+                        hostPort: 9100
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: node-exporter-service
+            namespace: monitoring
+            labels:
+              app: node-exporter
+          spec:
+            type: ClusterIP
+            selector:
+              app: node-exporter
+            ports:
+              - port: 9100
+                targetPort: 9100
+    - name: Apply node exporter manifests
+      shell: kubectl apply -f /tmp/node-exporter.yaml
+
+    # Blackbox Exporter
+    - name: Create blackbox exporter manifest
+      copy:
+        dest: /tmp/blackbox-exporter.yaml
+        content: |
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: blackbox-exporter
+            namespace: monitoring
+            labels:
+              app: blackbox-exporter
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: blackbox-exporter
+            template:
+              metadata:
+                labels:
+                  app: blackbox-exporter
+              spec:
+                containers:
+                  - name: blackbox-exporter
+                    image: prom/blackbox-exporter:latest
+                    ports:
+                      - containerPort: 9115
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: blackbox-exporter-service
+            namespace: monitoring
+          spec:
+            type: ClusterIP
+            selector:
+              app: blackbox-exporter
+            ports:
+              - port: 9115
+                targetPort: 9115
+    - name: Apply blackbox exporter manifest
+      shell: kubectl apply -f /tmp/blackbox-exporter.yaml
+
+    # Agario Server (dans le namespace par défaut)
+    - name: Create agario deployment
+      copy:
+        dest: /tmp/agario-deployment.yaml
+        content: |
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: agario-server
+            labels:
+              app: agario-server
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: agario-server
+            template:
+              metadata:
+                labels:
+                  app: agario-server
+              spec:
+                containers:
+                  - name: agario-server
+                    image: jnej/agario-clone:v2.0
+                    ports:
+                      - containerPort: 3000
+    - name: Apply agario deployment
+      shell: kubectl apply -f /tmp/agario-deployment.yaml
+
+    - name: Create agario service
+      copy:
+        dest: /tmp/agario-service.yaml
+        content: |
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: agario-server
+            labels:
+              app: agario-server
+          spec:
+            type: ClusterIP
+            selector:
+              app: agario-server
+            ports:
+              - name: http
+                port: 3000
+                targetPort: 3000
+    - name: Apply agario service
+      shell: kubectl apply -f /tmp/agario-service.yaml
+
+    # Ingress pour agario
+    - name: Create agario ingress
+      copy:
+        dest: /tmp/ingress.yaml
+        content: |
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: agario-server
+            annotations:
+              nginx.ingress.kubernetes.io/ssl-redirect: "false"
+          spec:
+            rules:
+            - http:
+                paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: agario-server
+                      port:
+                        number: 3000
+    - name: Apply agario ingress
+      shell: kubectl apply -f /tmp/ingress.yaml
+
+    # Ingress pour monitoring (Prometheus/Grafana)
+    - name: Create monitoring ingress
+      copy:
+        dest: /tmp/ingress-monitoring.yaml
+        content: |
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: monitoring-ingress
+            namespace: monitoring
+            annotations:
+              nginx.ingress.kubernetes.io/ssl-redirect: "false"
+          spec:
+            rules:
+              - host: prometheus.example.com
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: prometheus-service
+                          port:
+                            number: 9090
+              - host: grafana.example.com
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: grafana-service
+                          port:
+                            number: 3000
+    - name: Apply monitoring ingress
+      shell: kubectl apply -f /tmp/ingress-monitoring.yaml
