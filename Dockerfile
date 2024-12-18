@@ -8,7 +8,7 @@ WORKDIR /usr/src/app
 RUN apt-get update && apt-get install -y git && apt-get clean
 
 # Cloner le dépôt GitHub
-RUN git clone https://github.com/owenashurst/agar.io-clone.git .
+RUN git clone https://github.com/Lilian-Noacco/SAE-R5.DevCloud.03/ -b agario .
 
 # Installer les dépendances du projet
 RUN npm install
